@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pose Estimation</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        /* Add styles for the popup */
+        #popup {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        #popupContent {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Real-Time Pose Estimation</h1>
+    <img src="/video_feed" alt="Video Stream" style="width: 100%; max-width: 800px;">
+
+    <div>
+        <h2>Recording Controls</h2>
+        <button id="startNormal">Start Recording Normal Data</button>
+        <button id="saveNormal" disabled>Save Normal Data</button>
+        <button id="startAbnormal">Start Recording Abnormal Data</button>
+        <button id="saveAbnormal" disabled>Save Abnormal Data</button>
+    </div>
+
+    <div>
+        <h2>Recorded Data</h2>
+        <p>Normal Data Files: <span id="normalCount">{{ normal_count }}</span></p>
+        <p>Abnormal Data Files: <span id="abnormalCount">{{ abnormal_count }}</span></p>
+    </div>
+    <div>
+        <h2>Model Training</h2>
+        <button id="startTraining">Start Training Model</button>
+    </div>
+    <!-- reset button -->
+    <div>
+        <h2>reset environment</h2>
+        <button id="reset">reset</button>
+    </div>
+
+    <!-- Popup for training -->
+    <div id="popup">
+        <div id="popupContent">
+            <p>Training in progress, please wait...</p>
+        </div>
+    </div>
+
+    <!-- Audio element for bad pose alert -->
+    <audio id="badPoseAlert" src="{{ url_for('static', filename='audio/alert.mp3') }}" preload="auto"></audio>
+
+    <script>
+        let badPoseCount = 0;
+        let frameCount = 0;
+
+        document.getElementById('reset').onclick = function() {
+            fetch('/reset', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert("Environment reset successfully.");
+                    document.getElementById('normalCount').innerText = 0;
+                    document.getElementById('abnormalCount').innerText = 0;
+                } else {
+                    alert("Error resetting environment.");
+                }
+            })
+            .catch(error => {
+                alert("An error occurred: " + error);
+            });
+        };
+
+        document.getElementById('startTraining').onclick = function() {
+            // Show the popup
+            document.getElementById('popup').style.display = 'flex';
+
+            fetch('/start_training', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Hide the popup
+                document.getElementById('popup').style.display = 'none';
+                if (data.success) {
+                    alert("Training completed with accuracy: " + data.accuracy);
+                } else {
+                    alert("Error starting training.");
+                }
+            })
+            .catch(error => {
+                // In case of an error, hide the popup and show the error
+                document.getElementById('popup').style.display = 'none';
+                alert("An error occurred: " + error);
+            });
+        };
+
+        document.getElementById('startNormal').onclick = function() {
+            fetch('/start_recording', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ type: 'normal' })
+            });
+            this.disabled = true;
+            document.getElementById('saveNormal').disabled = false;
+            document.getElementById('startAbnormal').disabled = true;
+        };
+
+        document.getElementById('saveNormal').onclick = function() {
+            fetch('/stop_recording', {
+                method: 'POST'
+            });
+            this.disabled = true;
+            document.getElementById('startNormal').disabled = false;
+            document.getElementById('startAbnormal').disabled = false;
+            updateFileCounts();
+        };
+
+        document.getElementById('startAbnormal').onclick = function() {
+            fetch('/start_recording', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ type: 'abnormal' })
+            });
+            this.disabled = true;
+            document.getElementById('saveAbnormal').disabled = false;
+            document.getElementById('startNormal').disabled = true;
+        };
+
+        document.getElementById('saveAbnormal').onclick = function() {
+            fetch('/stop_recording', {
+                method: 'POST'
+            });
+            this.disabled = true;
+            document.getElementById('startAbnormal').disabled = false;
+            document.getElementById('startNormal').disabled = false;
+            updateFileCounts();
+        };
+
+        function updateFileCounts() {
+            fetch('/file_counts')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('normalCount').innerText = data.normal;
+                    document.getElementById('abnormalCount').innerText = data.abnormal;
+                });
+        }
+
+        function checkBadPose(prediction) {
+            frameCount++;
+            if (prediction < 0.4) {
+                badPoseCount++;
+            }
+
+            if (frameCount >= 30) {
+                if (badPoseCount >= 20) {
+                    document.getElementById('badPoseAlert').play();
+                }
+                frameCount = 0;
+                badPoseCount = 0;
+            }
+        }
+
+        // Call updateFileCounts on page load
+        updateFileCounts();
+
+        // Function to get prediction from the server
+        function getPrediction() {
+            fetch('/get_prediction')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        checkBadPose(data.prediction);
+                    }else {
+                        console.log("Error getting prediction.");
+                    }
+                });
+        }
+
+        // Periodically get prediction from the server
+        setInterval(getPrediction, 100); // Get prediction every 100ms
+    </script>
+</body>
+</html>

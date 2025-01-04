@@ -1,0 +1,46 @@
+/* This file contains the CSS styles for the application, defining the layout and appearance of the web interface.
+
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f4f4;
+}
+
+h1 {
+    text-align: center;
+    margin: 20px 0;
+}
+
+img {
+    display: block;
+    margin: 0 auto;
+    border: 2px solid #ccc;
+}
+
+.button-container {
+    text-align: center;
+    margin: 20px 0;
+}
+
+button {
+    padding: 10px 20px;
+    margin: 0 10px;
+    font-size: 16px;
+    cursor: pointer;
+    border: none;
+    border-radius: 5px;
+    background-color: #007bff;
+    color: white;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+.file-count {
+    text-align: center;
+    margin-top: 20px;
+    font-size: 18px;
+} */
