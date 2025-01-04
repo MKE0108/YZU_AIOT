@@ -1,17 +1,23 @@
-from flask import Flask, Response, render_template, request, jsonify
-import cv2
-import mediapipe as mp
-import numpy as np
-import torch.nn as nn
-import torch
 import os
+import cv2
+import numpy as np
+import torch
+import torch.nn as nn
+from flask import Flask, Response, render_template, request, jsonify
 from torch.utils.data import Dataset, DataLoader
+import mediapipe as mp
 import train
 import shutil
 
 app = Flask(__name__)
-#
+
+# Initialize global variables
 last_prediction = None
+recording_normal = False
+recording_abnormal = False
+normal_data_count = 0
+abnormal_data_count = 0
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')  # Use GPU if available
 
 # Define binary classification model
 class PostureClassifier(nn.Module):
@@ -31,10 +37,9 @@ class PostureClassifier(nn.Module):
 
 # Load trained model
 input_dim = 39  # Number of landmark features (13 points, each with x, y, z)
-model = PostureClassifier(input_dim)
-#if posture_classifier.pth exists, load it
+model = PostureClassifier(input_dim).to(device)
 if os.path.exists("posture_classifier.pth"):
-    model.load_state_dict(torch.load("posture_classifier.pth"))
+    model.load_state_dict(torch.load("posture_classifier.pth", map_location=device))
 model.eval()
 
 # Initialize MediaPipe Pose module
@@ -42,18 +47,12 @@ mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
 pose = mp_pose.Pose()
 
-recording_normal = False
-recording_abnormal = False
-normal_data_count = 0
-abnormal_data_count = 0
-
-#create folder
+# Create directories for data storage
 os.makedirs('data/normal', exist_ok=True)
 os.makedirs('data/abnormal', exist_ok=True)
 
-
 def generate_frames():
-    global normal_data_count, abnormal_data_count, model,last_prediction
+    global normal_data_count, abnormal_data_count, model, last_prediction
     cap = cv2.VideoCapture(0)  # Open camera
     while True:
         success, frame = cap.read()
@@ -63,6 +62,7 @@ def generate_frames():
         # MediaPipe processing
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = pose.process(frame_rgb)
+        
 
         if results.pose_landmarks:
             # Extract landmark features
@@ -77,7 +77,7 @@ def generate_frames():
             feature_vector = np.array(feature_vector, dtype=np.float32)
 
             # Convert features to PyTorch Tensor and classify
-            feature_tensor = torch.tensor(feature_vector).unsqueeze(0)  # Add batch dimension
+            feature_tensor = torch.tensor(feature_vector).unsqueeze(0).to(device)  # Add batch dimension
             with torch.no_grad():
                 prediction = model(feature_tensor).item()
 
@@ -111,8 +111,6 @@ def generate_frames():
 
 @app.route('/')
 def index():
-    print("normal_data_count",normal_data_count)
-    print("abnormal_data_count",abnormal_data_count)
     return render_template('index.html', normal_count=normal_data_count, abnormal_count=abnormal_data_count)
 
 @app.route('/video_feed')
@@ -122,7 +120,7 @@ def video_feed():
 @app.route('/reset', methods=['POST'])
 def reset():
     global normal_data_count, abnormal_data_count, model
-    model = PostureClassifier(input_dim)
+    model = PostureClassifier(input_dim).to(device)
     if os.path.exists("posture_classifier.pth"):
         os.remove("posture_classifier.pth")
     shutil.rmtree('data')
@@ -158,17 +156,16 @@ def file_counts():
 @app.route('/start_training', methods=['POST'])
 def start_training():
     global model
-    # Assuming you have the function to train the model
-    acc, model = train.train_model()
-    return jsonify(success=True, accuracy=acc.item())
+    acc, model = train.train_model(device=device)  # Pass the device to training function
+    model = model.to(device)  # Ensure the model is on the correct device
+    return jsonify(success=True, accuracy=acc)
 
 @app.route('/get_prediction', methods=['GET'])
 def get_prediction():
     global last_prediction
     if last_prediction is None:
-        return jsonify(success=False,prediction=None)
+        return jsonify(success=False, prediction=None)
     return jsonify(success=True, prediction=last_prediction)
-    
 
 if __name__ == '__main__':
     print("Starting Flask server...")
