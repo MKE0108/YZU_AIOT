@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 
+# 自定义 Dataset
 class PostureDataset(Dataset):
     def __init__(self, features, labels):
         self.features = features
@@ -15,27 +16,36 @@ class PostureDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.features[idx], self.labels[idx]
-def train_model(epochs = 20):
-    #read data
+
+# 训练函数
+def train_model(epochs=20, device="cuda"):
+
+
+    # 读取数据
     normal_data = []
     abnormal_data = []  
     for file in os.listdir('data/normal'):
-            normal_data.append(np.load(os.path.join('data/normal', file)))
+        normal_data.append(np.load(os.path.join('data/normal', file)))
     for file in os.listdir('data/abnormal'):
-            abnormal_data.append(np.load(os.path.join('data/abnormal', file)))
-    # Create labels
+        abnormal_data.append(np.load(os.path.join('data/abnormal', file)))
+
+    # 创建标签
     normal_labels = np.ones(len(normal_data))
     abnormal_labels = np.zeros(len(abnormal_data))
-    #create dataset
+
+    # 合并数据和标签
     features = np.concatenate([normal_data, abnormal_data], axis=0)
     labels = np.concatenate([normal_labels, abnormal_labels], axis=0)
-    #to tensor
-    features = torch.tensor(features, dtype=torch.float32)
-    labels = torch.tensor(labels, dtype=torch.float32)
+
+    # 转换为 PyTorch 张量并移动到设备
+    features = torch.tensor(features, dtype=torch.float32).to(device)
+    labels = torch.tensor(labels, dtype=torch.float32).to(device)
+
+    # 创建 Dataset 和 DataLoader
     dataset = PostureDataset(features, labels)
     dataloader = DataLoader(dataset, batch_size=16, shuffle=True)
 
-    # 4. 定義簡單的二元分類模型
+    # 定义模型
     class PostureClassifier(nn.Module):
         def __init__(self, input_dim):
             super(PostureClassifier, self).__init__()
@@ -45,36 +55,44 @@ def train_model(epochs = 20):
                 nn.Linear(64, 32),
                 nn.ReLU(),
                 nn.Linear(32, 1),
-                nn.Sigmoid()  # 輸出為 0-1 的機率
+                nn.Sigmoid()  # 输出为 0-1 的概率
             )
 
         def forward(self, x):
             return self.fc(x)
 
-    # 5. 初始化模型、損失函數和優化器
-    input_dim = features.shape[1]  # 特徵數量
-    model = PostureClassifier(input_dim)
+    # 初始化模型并移动到设备
+    input_dim = features.shape[1]  # 特征数量
+    model = PostureClassifier(input_dim).to(device)
     criterion = nn.BCELoss()  # Binary Cross Entropy Loss
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-    # 6. 訓練模型
+    # 开始训练
     for epoch in range(epochs):
+        model.train()  # 设置模型为训练模式
         for batch_features, batch_labels in dataloader:
+            # 将批数据移动到设备
+            batch_features = batch_features.to(device)
+            batch_labels = batch_labels.to(device)
+
+            # 前向传播、计算损失和反向传播
             optimizer.zero_grad()
             outputs = model(batch_features).squeeze()
             batch_labels = batch_labels.float().squeeze()
             loss = criterion(outputs, batch_labels)
             loss.backward()
             optimizer.step()
+
         print(f"Epoch {epoch + 1}/{epochs}, Loss: {loss.item():.4f}")
 
-
+    # 计算训练集上的准确率
+    model.eval()  # 设置模型为评估模式
     with torch.no_grad():
-            outputs = model(features).squeeze()
-            predictions = (outputs > 0.5).float()
-            accuracy = (predictions == labels).sum() / len(labels)
-            print(f"Accuracy: {accuracy:.4f}")
+        outputs = model(features).squeeze()
+        predictions = (outputs > 0.5).float()
+        accuracy = (predictions == labels).sum().item() / len(labels)
+        print(f"Accuracy: {accuracy:.4f}")
 
-    # 儲存模型
+    # 保存模型
     torch.save(model.state_dict(), "posture_classifier.pth")
     return accuracy, model
